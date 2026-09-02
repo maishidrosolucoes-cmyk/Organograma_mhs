@@ -10107,6 +10107,14 @@ textarea.control{
   transform:none!important;
 }
 
+
+/* =========================================================
+   SUPABASE GLOBAL — fonte única do projeto publicado
+   ========================================================= */
+#useLocalData{
+  display:none!important;
+}
+
 </style>
 </head>
 <body>
@@ -10118,7 +10126,25 @@ textarea.control{
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 
-const CFG={dataProvider:"local",storageKey:"orbia-org-v3",supabaseUrl:"",supabaseAnonKey:"",dbSchema:"organograma",organizationSlug:"orbia",storageBucket:"employee-photos",storagePrivate:true,locale:"pt-BR"};
+const SUPABASE_PUBLIC_CONFIG={
+  url:"",
+  anonKey:"",
+  schema:"organograma",
+  organizationSlug:"orbia",
+  storageBucket:"employee-photos"
+};
+
+const CFG={
+  dataProvider:"supabase",
+  storageKey:"orbia-org-v3",
+  supabaseUrl:SUPABASE_PUBLIC_CONFIG.url,
+  supabaseAnonKey:SUPABASE_PUBLIC_CONFIG.anonKey,
+  dbSchema:SUPABASE_PUBLIC_CONFIG.schema,
+  organizationSlug:SUPABASE_PUBLIC_CONFIG.organizationSlug,
+  storageBucket:SUPABASE_PUBLIC_CONFIG.storageBucket,
+  storagePrivate:true,
+  locale:"pt-BR"
+};
 
 
 const SUPABASE_SDK_FALLBACKS=[
@@ -10161,45 +10187,95 @@ const RuntimeConnection={
       return raw?JSON.parse(raw):null;
     }catch{return null}
   },
+
   hydrate(){
+    // O backend do site é sempre Supabase.
+    // localStorage não pode trocar o projeto para modo local.
+    CFG.dataProvider="supabase";
+
+    // Se o HTML já contém configuração pública, ela é soberana.
+    if(SUPABASE_PUBLIC_CONFIG.url&&SUPABASE_PUBLIC_CONFIG.anonKey){
+      CFG.supabaseUrl=SUPABASE_PUBLIC_CONFIG.url;
+      CFG.supabaseAnonKey=SUPABASE_PUBLIC_CONFIG.anonKey;
+      CFG.dbSchema=SUPABASE_PUBLIC_CONFIG.schema||"organograma";
+      CFG.organizationSlug=SUPABASE_PUBLIC_CONFIG.organizationSlug||"orbia";
+      CFG.storageBucket=SUPABASE_PUBLIC_CONFIG.storageBucket||"employee-photos";
+      return;
+    }
+
+    // Compatibilidade temporária apenas para o navegador já configurado.
+    // Não muda dataProvider e não interfere quando o HTML possui config global.
     const saved=this.load();
     if(!saved)return;
-    const allowed=["dataProvider","supabaseUrl","supabaseAnonKey","dbSchema","organizationSlug","storageBucket"];
-    for(const key of allowed){
-      if(saved[key]!==undefined)CFG[key]=saved[key];
-    }
+
+    if(saved.supabaseUrl)CFG.supabaseUrl=saved.supabaseUrl;
+    if(saved.supabaseAnonKey)CFG.supabaseAnonKey=saved.supabaseAnonKey;
+    if(saved.dbSchema)CFG.dbSchema=saved.dbSchema;
+    if(saved.organizationSlug)CFG.organizationSlug=saved.organizationSlug;
+    if(saved.storageBucket)CFG.storageBucket=saved.storageBucket;
   },
+
   save(values){
     const payload={
-      dataProvider:values.dataProvider||"supabase",
-      supabaseUrl:values.supabaseUrl||"",
-      supabaseAnonKey:values.supabaseAnonKey||"",
-      dbSchema:values.dbSchema||"organograma",
-      organizationSlug:values.organizationSlug||"orbia",
-      storageBucket:values.storageBucket||"employee-photos"
+      dataProvider:"supabase",
+      supabaseUrl:values.supabaseUrl||CFG.supabaseUrl||"",
+      supabaseAnonKey:values.supabaseAnonKey||CFG.supabaseAnonKey||"",
+      dbSchema:values.dbSchema||CFG.dbSchema||"organograma",
+      organizationSlug:values.organizationSlug||CFG.organizationSlug||"orbia",
+      storageBucket:values.storageBucket||CFG.storageBucket||"employee-photos"
     };
+
     localStorage.setItem(CONNECTION_STORAGE_KEY,JSON.stringify(payload));
-    Object.assign(CFG,payload);
+
+    Object.assign(CFG,{
+      ...payload,
+      dataProvider:"supabase"
+    });
   },
+
   useLocal(){
-    const current=this.load()||{};
-    const payload={...current,dataProvider:"local"};
-    localStorage.setItem(CONNECTION_STORAGE_KEY,JSON.stringify(payload));
-    CFG.dataProvider="local";
+    // Mantido apenas por compatibilidade interna.
+    // O projeto publicado não troca mais a fonte global para localStorage.
+    CFG.dataProvider="supabase";
   },
+
   forget(){
     localStorage.removeItem(CONNECTION_STORAGE_KEY);
+
     Object.assign(CFG,{
-      dataProvider:"local",
-      supabaseUrl:"",
-      supabaseAnonKey:"",
-      dbSchema:"organograma",
-      organizationSlug:"orbia",
-      storageBucket:"employee-photos"
+      dataProvider:"supabase",
+      supabaseUrl:SUPABASE_PUBLIC_CONFIG.url||"",
+      supabaseAnonKey:SUPABASE_PUBLIC_CONFIG.anonKey||"",
+      dbSchema:SUPABASE_PUBLIC_CONFIG.schema||"organograma",
+      organizationSlug:SUPABASE_PUBLIC_CONFIG.organizationSlug||"orbia",
+      storageBucket:SUPABASE_PUBLIC_CONFIG.storageBucket||"employee-photos"
     });
   }
 };
 RuntimeConnection.hydrate();
+
+function hasEmbeddedSupabaseConfig(){
+  return !!(
+    String(SUPABASE_PUBLIC_CONFIG.url||"").trim()&&
+    String(SUPABASE_PUBLIC_CONFIG.anonKey||"").trim()
+  );
+}
+
+function hasUsableSupabaseConfig(){
+  return !!(
+    String(CFG.supabaseUrl||"").trim()&&
+    String(CFG.supabaseAnonKey||"").trim()
+  );
+}
+
+function requireSupabaseConfig(){
+  if(!hasUsableSupabaseConfig()){
+    throw Error(
+      "SUPABASE_PUBLIC_CONFIG_INCOMPLETE: informe a Project URL e a Publishable/anon key públicas no bloco SUPABASE_PUBLIC_CONFIG do index.html."
+    );
+  }
+  return true;
+}
 
 function looksLikeServiceRoleKey(key=""){
   const k=String(key).trim();
@@ -10608,6 +10684,7 @@ const SupabaseProvider={
     this.accessMode="unknown";
   },
   getClient(){
+    requireSupabaseConfig();
     if(this.client)return this.client;
     if(!window.supabase?.createClient)throw Error("Supabase JS não carregou.");
     if(!CFG.supabaseUrl||!CFG.supabaseAnonKey)throw Error("Informe Project URL e Publishable/anon key.");
@@ -14354,7 +14431,7 @@ function settings(){
         <div>
           <span class="connection-kicker">Integração de dados</span>
           <h2>Conectar ao Supabase</h2>
-          <p>Cole a <strong>Project URL</strong> e a <strong>Publishable key / anon public</strong>. A chave fica somente no <code>localStorage</code> deste navegador e não é gravada dentro do HTML.</p>
+          <p>Cole a <strong>Project URL</strong> e a <strong>Publishable key / anon public</strong>. A versão publicada deve usar a <strong>Project URL</strong> e a <strong>Publishable/anon key</strong> públicas incorporadas ao projeto para funcionar em qualquer navegador.</p>
         </div>
         <span class="connection-status ${statusClass}"><i></i>${U.esc(access)}</span>
       </div>
@@ -14428,7 +14505,7 @@ function settings(){
 
       <article class="panel setting">
         <h3>Persistência local</h3>
-        <p>O modo local continua disponível como fallback e demonstração. As credenciais do Supabase não são inseridas no código-fonte do arquivo.</p>
+        <p>O Supabase é a fonte principal do projeto publicado. A sessão administrativa continua individual por navegador, mas os dados são compartilhados pelo banco.</p>
         <button id="reset" class="btn">${I.reset} Restaurar demonstração local</button>
       </article>
 
@@ -16321,27 +16398,9 @@ if(e.target.closest("#connectSupabase")){
   return;
 }
 if(e.target.closest("#useLocalData")){
-  RuntimeConnection.useLocal();
-  SupabaseProvider.resetClient();
-  state.data=normalizeLiveHierarchy(normalizeAppData(LocalProvider.load()));
-  state.connectionMode="local";
-  state.connectionError=null;
-  toast("Modo local ativado","A aplicação voltou a usar os dados armazenados neste navegador.");
-  render();
-  return;
+  toast("Supabase é a fonte principal","Este projeto foi configurado para usar o Supabase como fonte global.",true);
+  return
 }
-if(e.target.closest("#forgetSupabase")){
-  RuntimeConnection.forget();
-  SupabaseProvider.resetClient();
-  state.data=LocalProvider.load();
-  state.connectionMode="local";
-  state.connectionError=null;
-  toast("Configuração removida","Project URL e chave foram apagadas deste navegador.");
-  render();
-  return;
-}
-
-if(e.target.closest("#reset")){openModal("reset");return}
 if(e.target.closest("[data-confirm-reset]")){state.data=await DataService.reset();state.exp.clear();state.mexp.clear();state.aexp.clear();closeModal();toast("Dados restaurados","A demonstração voltou ao estado inicial.");render();return}
 if(e.target.closest("#zin")){setZoom(state.zoom+.1,{user:true});return}
 if(e.target.closest("#zout")){setZoom(state.zoom-.1,{user:true});return}
